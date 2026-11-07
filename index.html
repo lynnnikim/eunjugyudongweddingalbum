@@ -3,7 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>우리 결혼식 앨범</title>
+<title>규동♥은주 결혼 앨범</title>
+<meta name="description" content="2026년 12월 6일 일요일 · 오늘 찍은 사진을 업로드해주세요">
+<meta property="og:type" content="website">
+<meta property="og:title" content="규동♥은주 결혼 앨범">
+<meta property="og:description" content="2026년 12월 6일 일요일 · 오늘 찍은 사진을 업로드해주세요">
+<meta property="og:image" content="https://lynnnikim.github.io/eunjugyudongweddingalbum/thumbnail.jpg">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="800">
+<meta property="og:url" content="https://lynnnikim.github.io/eunjugyudongweddingalbum/">
 <link rel="stylesheet" href="style.css">
 <style>
 .hero{text-align:center;padding:30px 0 22px}
@@ -82,7 +90,7 @@ async function load() {
 </div>`;
     return;
   }
-  document.title = `${ev.groom} ♥ ${ev.bride} 웨딩 앨범`;
+  document.title = `${ev.groom}♥${ev.bride} 결혼 앨범`;
   main.innerHTML = `
     <section class="hero">
       <span class="eyebrow">Our Wedding Album</span>
@@ -143,12 +151,7 @@ function view() {
 }
 
 function renderSummary() {
-  const people = new Set(photos.map(p => p.guest).filter(Boolean)).size;
-  $("#sumText").innerHTML = photos.length
-    ? `<b>${photos.length}장</b>의 사진·영상 · <b>${people}명</b>이 함께했어요`
-    : "첫 번째 사진을 기다리고 있어요";
-  const me = $("#guest").value.trim();
-  $("#av").textContent = me ? me[0] : "♥";
+  $("#sumText").textContent = "마음에 드는 사진에 하트를 눌러주세요";
 }
 
 function render() {

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>앨범 관리</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:18px 0}
+.stats div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center}
+.stats b{display:block;font-family:'Noto Sans KR',sans-serif;font-size:26px}
+.stats span{font-size:12px;color:var(--sub)}
+.sec{margin-top:22px}
+.sec h3{font-family:'Noto Sans KR',sans-serif;font-size:18px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.stickers{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;justify-content:center;padding:22px;background:repeating-linear-gradient(45deg,#fff4f1 0 12px,#fdeae5 12px 24px);border-radius:14px}
+.stk{background:#fff;border-radius:12px;padding:10px 10px 8px;text-align:center;width:150px;box-shadow:0 6px 18px rgba(90,60,40,.12);cursor:pointer;border:2px solid transparent}
+.stk.on{border-color:var(--ink)}
+.stk img{width:100%;display:block}
+.stk .cap{font-size:11px;font-weight:700;margin-top:6px;line-height:1.3}
+.stk .cap small{display:block;font-weight:400;font-size:9.5px;color:var(--sub)}
+.stk.heart{background:transparent;box-shadow:none;padding:0}
+.stk.heart svg{width:100%;display:block;filter:drop-shadow(0 6px 12px rgba(90,60,40,.15))}
+.qrtools{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.qrtools .field{flex:1;min-width:120px;margin:0}
+.qrtools .field input{padding:10px 12px}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+.lb-btn{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:999px;padding:6px 12px;font:600 12px 'Noto Sans KR';cursor:pointer}
+.login{max-width:420px;margin:40px auto}
+#sheet{display:none}
+@media print{
+  @page{size:A4;margin:10mm}
+  body>*:not(#sheet){display:none!important}
+  #sheet{display:grid!important;grid-template-columns:repeat(4,1fr);gap:4mm}
+  #sheet .stk{width:auto;box-shadow:none;border:0.2mm dashed #bbb;break-inside:avoid;border-radius:3mm}
+  #sheet .stk.heart{border:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+<div style="height:24px"></div>
+
+  <form class="card login" id="login">
+    <h2 style="font-size:20px;margin-bottom:14px">앨범 관리</h2>
+    <label class="field"><span>앨범 주소</span><input id="lSlug" autocapitalize="off" placeholder="our-wedding"></label>
+    <label class="field"><span>관리 비밀번호</span><input id="lCode" type="password"></label>
+    <button class="btn btn-p" style="width:100%">들어가기</button>
+    <p class="muted" id="demoHint" style="font-size:12px;margin-top:10px" hidden>데모: 비밀번호 1234</p>
+  </form>
+
+  <main id="dash" hidden></main>
+</div>
+<div id="sheet"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="gallery.js"></script>
+<script>
+const { $, esc } = U;
+let slug, code, ev, items = [], shape = "basic", qrData = "";
+
+$("#demoHint").hidden = Chalkak.live;
+const hs = U.slugFromHash();
+if (hs) $("#lSlug").value = hs;
+const saved = hs && sessionStorage.getItem("chalkak-admin-" + hs);
+if (saved) { $("#lCode").value = saved; setTimeout(() => $("#login").requestSubmit(), 0); }
+
+$("#login").addEventListener("submit", async e => {
+  e.preventDefault();
+  slug = $("#lSlug").value.trim().toLowerCase(); code = $("#lCode").value;
+  try {
+    if (!U.validSlug(slug) || !(await Chalkak.checkAdmin(slug, code))) return U.toast("주소 또는 비밀번호가 맞지 않아요");
+  } catch (err) { return U.toast("확인 중 오류가 났어요"); }
+  sessionStorage.setItem("chalkak-admin-" + slug, code);
+  if (location.hash.slice(1) !== slug) history.replaceState(null, "", "#" + slug);
+  ev = await Chalkak.getEvent(slug);
+  $("#login").hidden = true; $("#dash").hidden = false;
+  await makeQR();
+  renderDash();
+  await refresh();
+  Chalkak.subscribe(slug, () => refresh());
+});
+
+function makeQR() {
+  return new Promise(res => {
+    const url = U.pageUrl("", "");
+    if (!window.QRCode) { qrData = ""; return res(); }
+    const tmp = document.createElement("div");
+    new QRCode(tmp, { text: url, width: 600, height: 600, colorDark: "#2a2420", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H });
+    setTimeout(() => { const c = tmp.querySelector("canvas"); qrData = c ? c.toDataURL("image/png") : (tmp.querySelector("img")?.src || ""); res(); }, 50);
+  });
+}
+
+const HEART = "M50 92 C20 70 2 52 2 30 C2 14 14 3 28 3 C38 3 46 9 50 17 C54 9 62 3 72 3 C86 3 98 14 98 30 C98 52 80 70 50 92Z";
+function stickerHTML(kind, caption) {
+  if (kind === "heart") return `<div class="stk heart" data-k="heart"><svg viewBox="0 0 100 95" xmlns="http://www.w3.org/2000/svg">
+    <path d="${HEART}" fill="#fff" stroke="#f05a3c" stroke-width="2"/>
+    <image href="${qrData}" x="28" y="20" width="44" height="44"/></svg></div>`;
+  return `<div class="stk" data-k="basic"><img src="${qrData}" alt="QR"><div class="cap">${esc(caption.t)}<small>${esc(caption.s)}</small></div></div>`;
+}
+const cap = () => ({ t: ($("#capT")?.value ?? `${ev.groom} ♡ ${ev.bride}`), s: ($("#capS")?.value ?? "QR을 찍고 사진을 함께 모아주세요") });
+
+function renderDash() {
+  const albumUrl = U.pageUrl("", "");
+  $("#dash").innerHTML = `
+    <span class="eyebrow">Dashboard</span>
+    <h1 style="font-size:26px;margin-top:4px">${esc(ev.groom)} ♡ ${esc(ev.bride)}</h1>
+    <p class="muted">${esc(U.fmtDate(ev.date))}</p>
+    <div class="stats"><div><b id="stP">0</b><span>사진</span></div><div><b id="stV">0</b><span>영상</span></div><div><b id="stG">0</b><span>올린 하객</span></div></div>
+
+    <section class="sec">
+      <h3>QR 스티커</h3>
+      <div class="stickers" id="stks"></div>
+      <div class="qrtools">
+        <label class="field"><span>스티커 문구</span><input id="capT" value="${esc(ev.groom)} ♡ ${esc(ev.bride)}" maxlength="20"></label>
+        <label class="field"><span>안내 문구</span><input id="capS" value="QR을 찍고 사진을 함께 모아주세요" maxlength="30"></label>
+      </div>
+      <div class="qrtools">
+        <label class="field"><span>인쇄할 스티커 개수</span><input id="cnt" type="number" min="1" max="500" value="24"></label>
+      </div>
+      <div class="tools" style="margin-top:12px">
+        <button class="btn btn-p btn-s" id="print">스티커 시트 인쇄</button>
+        <button class="btn btn-o btn-s" id="dlqr">QR 이미지 저장</button>
+        <button class="btn btn-o btn-s" id="copy">하객 링크 복사</button>
+        <a class="btn btn-o btn-s" href="index.html">하객 화면 보기</a>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:8px;word-break:break-all">${esc(albumUrl)}</p>
+    </section>
+
+    <section class="sec">
+      <h3>모인 사진 <span class="tools"><button class="btn btn-o btn-s" id="zip">전체 다운로드 (ZIP)</button></span></h3>
+      <p class="muted" style="font-size:12.5px;margin-bottom:10px">사진을 눌러 숨기거나 다시 보이게 할 수 있어요. 숨긴 사진은 하객에게 보이지 않아요.</p>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="empty" hidden>아직 올라온 사진이 없어요.</div>
+    </section>
+    <div style="height:60px"></div>`;
+  drawStickers();
+  ["capT", "capS"].forEach(id => $("#" + id).addEventListener("input", drawStickers));
+  $("#stks").addEventListener("click", e => { const s = e.target.closest(".stk"); if (s) { shape = s.dataset.k; drawStickers(); } });
+  $("#print").onclick = printSheet;
+  $("#dlqr").onclick = () => download(qrData, `chalkak-${slug}-qr.png`);
+  $("#copy").onclick = async () => { try { await navigator.clipboard.writeText(albumUrl); U.toast("복사했어요"); } catch (_) { U.toast("아래 주소를 길게 눌러 복사해 주세요"); } };
+  $("#zip").onclick = downloadZip;
+  Gallery.bindGrid($("#grid"), () => items, (p, redraw) => {
+    const b = document.createElement("button"); b.className = "lb-btn";
+    b.textContent = p.hidden ? "다시 보이기" : "숨기기";
+    b.onclick = async () => {
+      try { await Chalkak.setHidden(slug, code, p.id, !p.hidden); p.hidden = !p.hidden; redraw(); renderGrid(); U.toast(p.hidden ? "하객에게 숨겼어요" : "다시 보이게 했어요"); }
+      catch (_) { U.toast("변경하지 못했어요"); }
+    };
+    return b;
+  });
+}
+
+function drawStickers() {
+  $("#stks").innerHTML = stickerHTML("basic", cap()) + stickerHTML("heart");
+  $("#stks").querySelectorAll(".stk").forEach(s => s.classList.toggle("on", s.dataset.k === shape));
+}
+
+async function refresh() {
+  items = await Chalkak.adminList(slug, code).catch(() => items);
+  renderGrid();
+}
+function renderGrid() {
+  Gallery.renderGrid($("#grid"), items);
+  $("#empty").hidden = items.length > 0;
+  $("#stP").textContent = items.filter(p => p.kind === "image").length;
+  $("#stV").textContent = items.filter(p => p.kind === "video").length;
+  $("#stG").textContent = new Set(items.map(p => p.guest).filter(Boolean)).size;
+}
+
+function printSheet() {
+  const n = Math.max(1, Math.min(500, +$("#cnt").value || 24));
+  $("#sheet").innerHTML = Array.from({ length: n }, () => stickerHTML(shape, cap())).join("");
+  try { window.print(); } catch (_) {}
+  setTimeout(() => { if (!matchMedia("print").matches) U.toast("인쇄 창이 안 열리면 배포한 사이트에서 시도해 주세요"); }, 800);
+}
+
+function download(href, name) {
+  const a = document.createElement("a"); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+
+async function downloadZip() {
+  if (!window.JSZip) return U.toast("ZIP 도구를 불러오지 못했어요");
+  const list = items.filter(p => !p.hidden);
+  if (!list.length) return U.toast("내려받을 사진이 없어요");
+  const btn = $("#zip"); btn.disabled = true;
+  const zip = new JSZip(); let i = 0;
+  for (const p of list) {
+    i++; btn.textContent = `준비 중 ${i}/${list.length}`;
+    try {
+      const blob = await (await fetch(p.url)).blob();
+      const ext = p.kind === "video" ? (blob.type.split("/")[1] || "mp4") : "jpg";
+      zip.file(`${String(i).padStart(4, "0")}${p.guest ? "_" + p.guest.replace(/[\\/:*?"<>|]/g, "") : ""}.${ext}`, blob);
+    } catch (_) {}
+  }
+  btn.textContent = "압축 중…";
+  const out = await zip.generateAsync({ type: "blob" });
+  download(URL.createObjectURL(out), `${ev.groom}-${ev.bride}-wedding-photos.zip`);
+  btn.disabled = false; btn.textContent = "전체 다운로드 (ZIP)";
+}
+</script>
+</body>
+</html>

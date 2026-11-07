@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>우리 결혼식 앨범</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.hero{text-align:center;padding:30px 0 22px}
+.hero .names{font-size:clamp(24px,7vw,36px);margin:8px 0 4px}
+.hero .names span{color:#e02b2b;font-size:.7em;margin:0 6px}
+.upload-card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:22px;margin-bottom:22px}
+.upload-card h2{font-size:19px;margin-bottom:4px;text-align:center}
+.pick{width:100%;margin-top:14px;padding:18px;font-size:16px;background:#e02b2b}
+.pick:hover{background:#c41f1f}
+.namefield{display:flex;gap:8px;align-items:center;margin-top:14px}
+.namefield input{flex:1;padding:11px 14px;border:1.5px solid var(--line);border-radius:12px;font:15px 'Noto Sans KR';background:#fff;color:var(--ink)}
+.namefield input:focus{outline:none;border-color:var(--ink)}
+.queue{margin-top:14px;display:none}
+.queue.show{display:block}
+.progress{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin:8px 0}
+.progress i{display:block;height:100%;background:var(--rose);width:0;transition:width .3s}
+.qtext{font-size:13px;color:var(--sub);display:flex;justify-content:space-between}
+.thumbs{display:flex;gap:6px;overflow-x:auto;margin-top:8px}
+.thumbs div{flex:0 0 52px;height:52px;border-radius:8px;background:#eee center/cover;position:relative}
+.thumbs div.done::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;background:rgba(42,36,32,.45);color:#fff;font-weight:700;border-radius:8px}
+.thumbs div.err::after{content:"!";position:absolute;inset:0;display:grid;place-items:center;background:rgba(180,68,47,.6);color:#fff;font-weight:700;border-radius:8px}
+.summary{display:flex;align-items:center;gap:8px;margin-left:auto}
+.summary .av{width:30px;height:30px;border-radius:50%;background:#e02b2b;color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px;flex:0 0 30px}
+.summary p{font-size:13.5px;color:var(--sub);font-weight:500;white-space:nowrap}
+.summary p b{color:var(--ink)}
+.iconbtn{width:30px;height:30px;flex:0 0 30px;border-radius:50%;border:0;background:transparent;color:var(--sub);font-size:19px;cursor:pointer}
+.iconbtn.spin{animation:spin .7s linear}
+@keyframes spin{to{transform:rotate(360deg)}}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 6px;margin:6px 0 14px}
+.controls::-webkit-scrollbar{display:none}
+.seg{display:flex;flex:0 0 auto;background:#e2ded3;border-radius:999px;padding:3px}
+.seg button{border:0;background:transparent;border-radius:999px;padding:7px 12px;font:500 13.5px 'Noto Sans KR';color:var(--sub);cursor:pointer;white-space:nowrap}
+.seg button.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.pill{flex:0 0 auto;white-space:nowrap;border:0;background:#e2ded3;border-radius:999px;padding:8px 13px;font:500 13.5px 'Noto Sans KR';color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.pill:disabled{opacity:.5}
+.pill.on{background:var(--ink);color:#fff}
+.selbar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:none;gap:8px;align-items:center;z-index:40}
+.selbar.show{display:flex}
+.selbar span{flex:1;font-size:14px;font-weight:700}
+.dlbox{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:90;padding:20px}
+.dlbox.show{display:flex}
+.dlbox .in{background:#fff;border-radius:20px;padding:24px;width:100%;max-width:340px;text-align:center}
+.dlbox .in h3{font-size:17px;margin-bottom:6px}
+.notfound{text-align:center;padding:80px 20px}
+footer{text-align:center;font-size:12px;color:var(--sub);padding:40px 0 50px}
+</style>
+</head>
+<body>
+<div class="wrap" style="padding-bottom:50px">
+  <main id="main"><p class="empty">앨범을 불러오는 중…</p></main>
+</div>
+
+<input type="file" id="file" accept="image/*,video/*" multiple hidden>
+<div class="selbar" id="selbar"><span id="selCount">0장 선택됨</span><button class="btn btn-o btn-s" id="selCancel">취소</button><button class="btn btn-p btn-s" id="selSave">저장</button></div>
+<div class="dlbox" id="dl"><div class="in"><h3>사진을 준비하고 있어요</h3><p class="muted" id="dlMsg"></p></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="gallery.js"></script>
+<script>
+const { $, esc } = U;
+const C = window.CHALKAK_CONFIG;
+let slug = U.slugFromHash(), ev = null, photos = [], newIds = new Set(), unsub = null;
+let sort = "new", selecting = false;
+const selected = new Set(), liked = new Set(U.store.get("chalkak-liked", []));
+
+async function load() {
+  slug = U.slugFromHash();
+  if (unsub) { unsub(); unsub = null; }
+  const main = $("#main");
+  ev = U.validSlug(slug) ? await Chalkak.getEvent(slug).catch(() => null) : null;
+  if (!ev) {
+    main.innerHTML = `<div class="notfound"><h2>앨범을 찾을 수 없어요</h2><p class="muted" style="margin-top:8px">QR 코드를 다시 찍거나, 신랑·신부에게 링크를 확인해 주세요.</p>
+</div>`;
+    return;
+  }
+  document.title = `${ev.groom} ♥ ${ev.bride} 웨딩 앨범`;
+  main.innerHTML = `
+    <section class="hero">
+      <span class="eyebrow">Our Wedding Album</span>
+      <h1 class="names">${esc(ev.groom)}<span>♥</span>${esc(ev.bride)}</h1>
+      <p class="muted">${esc(U.fmtDate(ev.date))}</p>
+    </section>
+    <section class="upload-card">
+      <h2>오늘 찍은 사진을 업로드해주세요</h2>
+      <div class="namefield"><input id="guest" maxlength="20" placeholder="이름 (선택)"></div>
+      <button class="btn btn-r pick" id="pick">📷 사진·영상 올리기</button>
+      <div class="queue" id="queue">
+        <div class="qtext"><span id="qLabel">올리는 중…</span><span id="qCount"></span></div>
+        <div class="progress"><i id="qBar"></i></div>
+        <div class="thumbs" id="qThumbs"></div>
+      </div>
+    </section>
+    <section>
+      <div class="controls">
+        <div class="seg"><button data-sort="new" class="on">최신순</button><button data-sort="pop">인기순</button></div>
+        <button class="pill" id="saveAll">⤓ 전체 저장</button>
+        <button class="pill" id="selBtn">☑ 선택</button>
+        <div class="summary"><div class="av" id="av">♥</div><p id="sumText"></p><button class="iconbtn" id="refresh" aria-label="새로고침">↻</button></div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="empty" hidden>아직 사진이 없어요.<br>첫 번째 사진을 올려주세요!</div>
+    </section>`;
+  $("#guest").value = U.store.get("chalkak-guest", "");
+  $("#guest").addEventListener("input", e => { U.store.set("chalkak-guest", e.target.value.trim()); renderSummary(); });
+  $("#pick").onclick = () => $("#file").click();
+  $("#refresh").onclick = async () => { const b = $("#refresh"); b.classList.remove("spin"); void b.offsetWidth; b.classList.add("spin"); await reload(); };
+  document.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
+    sort = b.dataset.sort; document.querySelectorAll(".seg button").forEach(x => x.classList.toggle("on", x === b)); render();
+  });
+  $("#saveAll").onclick = () => saveFiles(view(), "전체");
+  $("#selBtn").onclick = () => setSelecting(!selecting);
+  $("#selCancel").onclick = () => setSelecting(false);
+  $("#selSave").onclick = () => saveFiles(view().filter(p => selected.has(p.id)), "선택");
+  Gallery.bindGrid($("#grid"), view, null, {
+    isSelecting: () => selecting,
+    onSelect: p => { selected.has(p.id) ? selected.delete(p.id) : selected.add(p.id); render(); },
+    onLike: toggleLike
+  });
+
+  await reload();
+  unsub = Chalkak.subscribe(slug, p => {
+    if (photos.some(x => x.id === p.id) || p.hidden) return;
+    photos.unshift(p); newIds.add(p.id); render();
+  });
+}
+
+async function reload() { photos = await Chalkak.listPhotos(slug).catch(() => photos); render(); }
+
+function view() {
+  const v = photos.slice();
+  if (sort === "pop") v.sort((a, b) => (b.likes || 0) - (a.likes || 0) || b.created_at.localeCompare(a.created_at));
+  else v.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return v;
+}
+
+function renderSummary() {
+  const people = new Set(photos.map(p => p.guest).filter(Boolean)).size;
+  $("#sumText").innerHTML = photos.length
+    ? `<b>${photos.length}장</b>의 사진·영상 · <b>${people}명</b>이 함께했어요`
+    : "첫 번째 사진을 기다리고 있어요";
+  const me = $("#guest").value.trim();
+  $("#av").textContent = me ? me[0] : "♥";
+}
+
+function render() {
+  Gallery.renderGrid($("#grid"), view(), { likes: true, liked, selecting, selected, newIds });
+  newIds.clear();
+  renderSummary();
+  $("#saveAll").innerHTML = `⤓ 전체 저장${photos.length ? ` (${photos.length}장)` : ""}`;
+  $("#saveAll").disabled = !photos.length;
+  $("#empty").hidden = photos.length > 0;
+  $("#selBtn").classList.toggle("on", selecting);
+  $("#selCount").textContent = `${selected.size}장 선택됨`;
+  $("#selSave").disabled = !selected.size;
+}
+
+function setSelecting(on) {
+  selecting = on; selected.clear();
+  $("#selbar").classList.toggle("show", on);
+  render();
+}
+
+async function toggleLike(id) {
+  const p = photos.find(x => x.id === id); if (!p) return;
+  const was = liked.has(id), d = was ? -1 : 1;
+  was ? liked.delete(id) : liked.add(id);
+  p.likes = Math.max(0, (p.likes || 0) + d);
+  U.store.set("chalkak-liked", [...liked]);
+  render();
+  try { const n = await Chalkak.like(id, d); if (typeof n === "number") { p.likes = n; render(); } }
+  catch (_) { was ? liked.add(id) : liked.delete(id); p.likes = Math.max(0, p.likes - d); U.store.set("chalkak-liked", [...liked]); render(); U.toast("좋아요를 반영하지 못했어요"); }
+}
+
+// 저장: 휴대폰은 공유 시트(사진 앱에 저장), 그 외에는 ZIP
+async function saveFiles(list, label) {
+  if (!list.length) return U.toast("저장할 사진이 없어요");
+  const box = $("#dl"), msg = $("#dlMsg");
+  box.classList.add("show"); msg.textContent = `0 / ${list.length}`;
+  const files = [];
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i];
+    try {
+      const blob = await (await fetch(p.url)).blob();
+      const ext = p.kind === "video" ? ((blob.type.split("/")[1] || "mp4").replace("quicktime", "mov")) : "jpg";
+      files.push(new File([blob], `${String(i + 1).padStart(4, "0")}${p.guest ? "_" + p.guest.replace(/[\\/:*?"<>|]/g, "") : ""}.${ext}`, { type: blob.type || (p.kind === "video" ? "video/mp4" : "image/jpeg") }));
+    } catch (_) {}
+    msg.textContent = `${i + 1} / ${list.length}`;
+  }
+  try {
+    if (files.length <= 30 && navigator.canShare && navigator.canShare({ files })) {
+      msg.textContent = "저장할 곳을 골라주세요 ('이미지 저장'을 누르면 사진 앱에 들어가요)";
+      await navigator.share({ files });
+    } else {
+      if (!window.JSZip) throw new Error("zip");
+      msg.textContent = "압축하는 중…";
+      const zip = new JSZip(); files.forEach(f => zip.file(f.name, f));
+      const out = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(out);
+      a.download = `${ev.groom}-${ev.bride}-${label}-${files.length}장.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    if (label === "선택") setSelecting(false);
+  } catch (err) {
+    if (err && err.name !== "AbortError") U.toast("저장하지 못했어요. 다시 시도해 주세요");
+  } finally { box.classList.remove("show"); }
+}
+
+$("#file").addEventListener("change", async e => {
+  const files = [...e.target.files]; e.target.value = "";
+  if (!files.length) return;
+  const guest = $("#guest").value.trim();
+  U.store.set("chalkak-guest", guest);
+  const q = $("#queue"), bar = $("#qBar"), th = $("#qThumbs");
+  q.classList.add("show"); $("#pick").disabled = true;
+  th.innerHTML = files.map((f, i) => `<div id="t${i}" ${f.type.startsWith("image/") ? `style="background-image:url(${URL.createObjectURL(f)})"` : ""}>${f.type.startsWith("video/") ? "" : ""}</div>`).join("");
+  let done = 0, fail = 0;
+  const step = () => { $("#qCount").textContent = `${done + fail} / ${files.length}`; bar.style.width = ((done + fail) / files.length * 100) + "%"; };
+  step(); $("#qLabel").textContent = "올리는 중… 화면을 닫지 말아 주세요";
+  // 동시에 3개씩 업로드
+  let next = 0;
+  async function worker() {
+    while (next < files.length) {
+      const i = next++, f = files[i], t = $("#t" + i);
+      try {
+        if (f.type.startsWith("video/") && f.size > C.MAX_VIDEO_MB * 1e6) throw new Error(`영상은 ${C.MAX_VIDEO_MB}MB까지 올릴 수 있어요`);
+        if (!/^(image|video)\//.test(f.type)) throw new Error("사진·영상만 올릴 수 있어요");
+        const ready = f.type.startsWith("image/") ? await U.shrinkImage(f, C.IMAGE_MAX_EDGE) : f;
+        await Chalkak.upload(slug, ready, guest);
+        done++; t.classList.add("done");
+      } catch (err) {
+        fail++; t.classList.add("err"); console.warn(err); U.toast(err.message || "업로드에 실패한 파일이 있어요");
+      }
+      step();
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  $("#pick").disabled = false;
+  $("#qLabel").textContent = fail ? `${done}개 완료, ${fail}개 실패 — 다시 시도해 주세요` : `${done}개 모두 올렸어요. 고마워요! 💐`;
+  if (Chalkak.live) await reload();
+});
+
+window.addEventListener("hashchange", load);
+load();
+</script>
+</body>
+</html>
